@@ -295,7 +295,6 @@ class CustomCLIP(nn.Module):
 
     def encode_image(self, image, normalize: bool = False):
         features = self.visual(image)
-        return features
         return F.normalize(features, dim=-1) if normalize else features
 
     def encode_text(self, text, normalize: bool = False):

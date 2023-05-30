@@ -367,8 +367,8 @@ def extract_features(model, data, args, device):
                 texts = texts.to(device=device, non_blocking=True)
 
                 image_features, text_features, _ = model(images, texts)
-
-                all_image_features.append(image_features.cpu())
+                v = model.visual.blocks[-1].attn.value_buffer
+                all_image_features.append(v.cpu())
                 all_text_features.append(text_features.cpu())
 
                 batch_size = images.shape[0]

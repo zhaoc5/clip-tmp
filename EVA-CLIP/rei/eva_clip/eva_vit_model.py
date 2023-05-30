@@ -163,6 +163,7 @@ class Attention(nn.Module):
         self.xattn_drop = attn_drop
 
         self.rope = rope
+        self.value_buffer = None
 
     def forward(self, x, rel_pos_bias=None, attn_mask=None):
         B, N, C = x.shape
@@ -170,6 +171,7 @@ class Attention(nn.Module):
             q = F.linear(input=x, weight=self.q_proj.weight, bias=self.q_bias)
             k = F.linear(input=x, weight=self.k_proj.weight, bias=None)
             v = F.linear(input=x, weight=self.v_proj.weight, bias=self.v_bias)
+            self.value_buffer = v.clone()
 
             q = q.reshape(B, N, self.num_heads, -1).permute(0, 2, 1, 3)     # B, num_heads, N, C
             k = k.reshape(B, N, self.num_heads, -1).permute(0, 2, 1, 3)  
@@ -234,7 +236,7 @@ class Attention(nn.Module):
             x = self.inner_attn_ln(x)
             x = self.proj(x)
             x = self.proj_drop(x)
-        return x, v.reshape(B, N, -1)
+        return x
 
 
 class Block(nn.Module):
@@ -284,10 +286,8 @@ class Block(nn.Module):
                 x = x + self.drop_path(self.norm1(self.attn(x, rel_pos_bias=rel_pos_bias, attn_mask=attn_mask)))
                 x = x + self.drop_path(self.norm2(self.mlp(x)))
             else:
-                temp_x, v = self.drop_path(self.attn(self.norm1(x), rel_pos_bias=rel_pos_bias, attn_mask=attn_mask))
-                x = x + temp_x
+                x = x + self.drop_path(self.attn(self.norm1(x), rel_pos_bias=rel_pos_bias, attn_mask=attn_mask))
                 x = x + self.drop_path(self.mlp(self.norm2(x)))
-                return x , v
         else:
             if self.postnorm:
                 x = x + self.drop_path(self.gamma_1 * self.norm1(self.attn(x, rel_pos_bias=rel_pos_bias, attn_mask=attn_mask)))
@@ -510,9 +510,7 @@ class EVAVisionTransformer(nn.Module):
             if self.grad_checkpointing:
                 x = checkpoint(blk, x, (rel_pos_bias,))
             else:
-                x, v = blk(x, rel_pos_bias=rel_pos_bias)
-                if i==len(self.blocks)-1:
-                    return v
+                x = blk(x, rel_pos_bias=rel_pos_bias)
 
         if not return_all_features:
             x = self.norm(x)
@@ -526,6 +524,5 @@ class EVAVisionTransformer(nn.Module):
         if return_all_features:
             return self.forward_features(x, return_all_features)
         x = self.forward_features(x)
-        return x
         x = self.head(x)
         return x
