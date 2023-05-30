@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from apex.normalization import FusedLayerNorm
+#from apex.normalization import FusedLayerNorm
 
 try:
     from .hf_model import HFTextEncoder
@@ -115,7 +115,7 @@ def _build_vision_tower(
             mlp_ratio=vision_cfg.mlp_ratio,
             qkv_bias=vision_cfg.qkv_bias,
             drop_path_rate=vision_cfg.drop_path_rate,
-            norm_layer= partial(FusedLayerNorm, eps=1e-6) if vision_cfg.fusedLN else partial(norm_layer, eps=1e-6),
+            norm_layer= partial(norm_layer, eps=1e-6) if vision_cfg.fusedLN else partial(norm_layer, eps=1e-6),
             xattn=vision_cfg.xattn,
             rope=vision_cfg.rope,
             postnorm=vision_cfg.postnorm,
@@ -196,7 +196,7 @@ def _build_text_tower(
             ls_init_value=text_cfg.ls_init_value,
             output_dim=embed_dim,
             act_layer=act_layer,
-            norm_layer= FusedLayerNorm if text_cfg.fusedLN else norm_layer,
+            norm_layer= norm_layer if text_cfg.fusedLN else norm_layer,
             xattn=text_cfg.xattn,
             attn_mask=text_cfg.attn_mask,
         )
@@ -295,6 +295,7 @@ class CustomCLIP(nn.Module):
 
     def encode_image(self, image, normalize: bool = False):
         features = self.visual(image)
+        return features
         return F.normalize(features, dim=-1) if normalize else features
 
     def encode_text(self, text, normalize: bool = False):

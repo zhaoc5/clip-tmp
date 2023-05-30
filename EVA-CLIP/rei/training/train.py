@@ -8,7 +8,7 @@ import gc
 import numpy as np
 import torch
 import torch.nn as nn
-from torch._six import inf
+from torch import inf
 import torch.nn.functional as F
 import torch.distributed as dist
 
@@ -366,10 +366,10 @@ def extract_features(model, data, args, device):
                 images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
                 texts = texts.to(device=device, non_blocking=True)
 
-                image_features, text_features = model(images, texts)
+                image_features, text_features, _ = model(images, texts)
 
-                all_image_features.append(image_features)
-                all_text_features.append(text_features)
+                all_image_features.append(image_features.cpu())
+                all_text_features.append(text_features.cpu())
 
                 batch_size = images.shape[0]
                 num_samples += batch_size

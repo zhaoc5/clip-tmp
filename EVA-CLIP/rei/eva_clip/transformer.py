@@ -8,8 +8,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from timm.models.layers import trunc_normal_
-from apex.normalization import FusedLayerNorm
-from apex.normalization.fused_layer_norm import FusedLayerNormAffineFunction, FusedLayerNormFunction
+#from apex.normalization import FusedLayerNorm
+#from apex.normalization.fused_layer_norm import FusedLayerNormAffineFunction, FusedLayerNormFunction
 
 from .rope import VisionRotaryEmbedding, VisionRotaryEmbeddingFast
 from .utils import to_2tuple
@@ -28,32 +28,32 @@ except ImportError:
     print("Please 'pip install xformers'")
 
 
-class FusedLayerNormFp32(FusedLayerNorm):
-    """Subclass apex FusedLayerNorm to handle fp16 & bf16 (by casting to float32 and back)."""
+# class FusedLayerNormFp32(FusedLayerNorm):
+#     """Subclass apex FusedLayerNorm to handle fp16 & bf16 (by casting to float32 and back)."""
 
-    def forward(self, input: torch.Tensor):
+#     def forward(self, input: torch.Tensor):
 
-        orig_type = input.dtype
+#         orig_type = input.dtype
 
-        if not input.is_cuda:
-            return F.layer_norm(
-                input.to(torch.float32), 
-                self.normalized_shape, 
-                self.weight.float() if self.weight is not None else None,
-                self.bias.float() if self.bias is not None else None,
-                self.eps)
+#         if not input.is_cuda:
+#             return F.layer_norm(
+#                 input.to(torch.float32), 
+#                 self.normalized_shape, 
+#                 self.weight.float() if self.weight is not None else None,
+#                 self.bias.float() if self.bias is not None else None,
+#                 self.eps)
         
-        if self.elementwise_affine:
-            output = FusedLayerNormAffineFunction.apply(
-                input.to(torch.float32), 
-                self.weight.float(), 
-                self.bias.float(), 
-                self.normalized_shape, 
-                self.eps)
-        else:
-            output = FusedLayerNormFunction.apply(input.to(torch.float32), self.normalized_shape, self.eps)
+#         if self.elementwise_affine:
+#             output = FusedLayerNormAffineFunction.apply(
+#                 input.to(torch.float32), 
+#                 self.weight.float(), 
+#                 self.bias.float(), 
+#                 self.normalized_shape, 
+#                 self.eps)
+#         else:
+#             output = FusedLayerNormFunction.apply(input.to(torch.float32), self.normalized_shape, self.eps)
 
-        return output.to(orig_type)
+#         return output.to(orig_type)
 
 class LayerNormFp32(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16 (by casting to float32 and back)."""
