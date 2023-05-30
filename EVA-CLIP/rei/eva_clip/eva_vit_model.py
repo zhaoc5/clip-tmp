@@ -234,7 +234,7 @@ class Attention(nn.Module):
             x = self.inner_attn_ln(x)
             x = self.proj(x)
             x = self.proj_drop(x)
-        return x
+        return x, v.reshape(B, N, -1)
 
 
 class Block(nn.Module):
@@ -284,8 +284,10 @@ class Block(nn.Module):
                 x = x + self.drop_path(self.norm1(self.attn(x, rel_pos_bias=rel_pos_bias, attn_mask=attn_mask)))
                 x = x + self.drop_path(self.norm2(self.mlp(x)))
             else:
-                x = x + self.drop_path(self.attn(self.norm1(x), rel_pos_bias=rel_pos_bias, attn_mask=attn_mask))
+                temp_x, v = self.drop_path(self.attn(self.norm1(x), rel_pos_bias=rel_pos_bias, attn_mask=attn_mask))
+                x = x + temp_x
                 x = x + self.drop_path(self.mlp(self.norm2(x)))
+                return x , v
         else:
             if self.postnorm:
                 x = x + self.drop_path(self.gamma_1 * self.norm1(self.attn(x, rel_pos_bias=rel_pos_bias, attn_mask=attn_mask)))
@@ -503,11 +505,14 @@ class EVAVisionTransformer(nn.Module):
             x = self.patch_dropout(x)
 
         rel_pos_bias = self.rel_pos_bias() if self.rel_pos_bias is not None else None
-        for blk in self.blocks:
+        
+        for i, blk in enumerate(self.blocks):
             if self.grad_checkpointing:
                 x = checkpoint(blk, x, (rel_pos_bias,))
             else:
-                x = blk(x, rel_pos_bias=rel_pos_bias)
+                x, v = blk(x, rel_pos_bias=rel_pos_bias)
+                if i==len(self.blocks)-1:
+                    return v
 
         if not return_all_features:
             x = self.norm(x)
@@ -521,5 +526,6 @@ class EVAVisionTransformer(nn.Module):
         if return_all_features:
             return self.forward_features(x, return_all_features)
         x = self.forward_features(x)
+        return x
         x = self.head(x)
         return x
