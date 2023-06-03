@@ -361,7 +361,6 @@ def extract_features(model, data, args, device):
     # tokenize = get_tokenizer(args.model) # texts = tokenize()
 
     # lmdb save
-    img_emb_folder = "/workspace/code/clip-tmp/_debug/clip_cls_emb"
     env = lmdb.open(f'{img_emb_folder}', map_size=1024**4)
     txn = env.begin(write=True)
     num_flag=0
