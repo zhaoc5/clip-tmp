@@ -22,6 +22,13 @@ from .zero_shot import zero_shot_eval
 from .precision import get_autocast
 from .utils import save_file
 
+# import cv2
+# import matplotlib.pylab as plt
+# from eva_clip.tokenizer import SimpleTokenizer
+# import lmdb
+# import msgpack
+# import msgpack_numpy
+# msgpack_numpy.patch()
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -350,6 +357,11 @@ def extract_features(model, data, args, device):
     model.eval()
     # autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
+    # tokenizer = SimpleTokenizer()
+    # tokenize = get_tokenizer(args.model) # texts = tokenize()
+    # env = lmdb.open(f'{emb_folder}/clip_emb', map_size=1024**5)
+    # txn = env.begin(write=True)
+    # num_flag=0
     if 'val' in data:
         dataloader = data['val'].dataloader
         num_samples = 0
@@ -368,6 +380,45 @@ def extract_features(model, data, args, device):
 
                 image_features, text_features, _ = model(images, texts)
                 v = model.visual.blocks[-1].attn.value_buffer
+
+                # vis start
+                # v = model.visual.blocks[-1].attn.proj(v[0][1:])
+                # v = model.visual.norm(v)
+                # v = model.visual.head(v)
+                # v = F.normalize(v, dim=-1)#[1,197,768]->[196,512]
+                # t = text_features
+                # logits_per_img_token = _.mean() * v @ t.t()
+                
+                # side_length = int(np.sqrt(logits_per_img_token.shape[0]))
+                # logits_per_img_token = logits_per_img_token.reshape(1, 1, side_length, side_length)
+                # image_relevance = torch.nn.functional.interpolate(logits_per_img_token, size=224, mode='bilinear')
+                # image_relevance = image_relevance.reshape(224, 224).data.cpu().numpy()
+                # image_relevance = (image_relevance - image_relevance.min()) / (image_relevance.max() - image_relevance.min())
+
+                # img_np = images[0].permute(1, 2, 0).data.cpu().numpy()
+                # img_np = (img_np - img_np.min()) / (img_np.max() - img_np.min())
+                # heatmap = cv2.applyColorMap(np.uint8(255 * image_relevance), cv2.COLORMAP_JET)
+                # heatmap = np.float32(heatmap) / 255
+                # cam = heatmap + np.float32(img_np)
+                # cam = cam / np.max(cam)
+                # vis=cam
+                # vis = np.uint8(255 * vis)
+                # vis = cv2.cvtColor(np.array(vis), cv2.COLOR_RGB2BGR)
+
+                # _, axs = plt.subplots(1, 2)
+                # axs[0].imshow(img_np)
+                # axs[0].axis('off')
+                # axs[1].imshow(vis)
+                # axs[1].axis('off')
+                # plt.show()
+                # input_t = texts[0].tolist()
+                # input_t = input_t[1:input_t.index(49407)]
+                # input_t = tokenizer.decode(input_t)
+                # plt.savefig(f'/workspace/code/clip-tmp/_debug/vis/{i}_{input_t}.jpg')
+                # vis end
+
+                
+
                 all_image_features.append(v.cpu())
                 all_text_features.append(text_features.cpu())
 
@@ -378,18 +429,26 @@ def extract_features(model, data, args, device):
                 )
 
                 if idx % save_interval == 0:
+                    # for idx_ft, img_ft in enumerate(all_image_features):
+                    #     for cur_idx in range(batch_size):
+                    #         cur_img_ft = img_ft[cur_idx]
+                    #         cur_text_ft = all_text_features[idx_ft][cur_idx]
+                    #         dump_emb=[]
+                    #         dump_emb.append(cur_img_ft.numpy().astype(np.float32))
+                    #         dump_emb.append(cur_text_ft.numpy().astype(np.float32))
+                    #         txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
+                    #         num_flag+=1
+                    # print(f"Save Sucess!")
+                    # txn.commit()
+                    # txn = env.begin(write=True)
 
                     img_feat = np.concatenate(all_image_features)
                     text_feat = np.concatenate(all_text_features)
                     
 
                     split = "%08d" % (idx//save_interval)
-                    out_img_feat_file = (
-                        f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy"
-                    )
-                    out_text_feat_file = (
-                        f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy"
-                    )
+                    out_img_feat_file = (f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy")
+                    out_text_feat_file = (f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy")
 
                     save_file(img_feat, out_img_feat_file)
                     save_file(text_feat, out_text_feat_file)
@@ -399,6 +458,21 @@ def extract_features(model, data, args, device):
                     all_text_features = []
 
             if len(all_image_features) > 0:
+                # for idx_ft, img_ft in enumerate(all_image_features):
+                #     for cur_idx in range(batch_size):
+                #         cur_img_ft = img_ft[cur_idx]
+                #         cur_text_ft = all_text_features[idx_ft][cur_idx]
+                #         dump_emb=[]
+                #         dump_emb.append(cur_img_ft.astype(np.float32))
+                #         dump_emb.append(cur_text_ft.astype(np.float32))
+                #         txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
+                #         num_flag+=1
+                # print(f"Save Sucess!")
+                # txn.commit()
+                # txn = env.begin(write=True)
+                # print(f"All Emb Save Sucess!")
+                # env.close()
+                # print(f"All Emb Save Sucess!")
                 img_feat = np.concatenate(all_image_features)
                 text_feat = np.concatenate(all_text_features)
 

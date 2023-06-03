@@ -70,3 +70,5 @@ _output/
 .vscode/
 data_download/
 test_img.jpg
+_output-e14p-train/
+_output-e14p-val/

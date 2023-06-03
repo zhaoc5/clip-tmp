@@ -185,6 +185,7 @@ class Attention(nn.Module):
             qkv = F.linear(input=x, weight=self.qkv.weight, bias=qkv_bias)
             qkv = qkv.reshape(B, N, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)   # 3, B, num_heads, N, C
             q, k, v = qkv[0], qkv[1], qkv[2]
+            self.value_buffer = v.clone().permute(0, 2, 1, 3).reshape(B, N, -1)
 
         if self.rope:
             # slightly fast impl
