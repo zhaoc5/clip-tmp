@@ -257,8 +257,8 @@ class CLIP(nn.Module):
         return F.normalize(x, dim=-1) if normalize else x
 
     def forward(self, image, text):
-        image_features = self.encode_image(image, normalize=False)
-        text_features = self.encode_text(text, normalize=False)
+        image_features = self.encode_image(image, normalize=True)
+        text_features = self.encode_text(text, normalize=True)
         return image_features, text_features, self.logit_scale.exp()
 
 
@@ -302,8 +302,8 @@ class CustomCLIP(nn.Module):
         return F.normalize(features, dim=-1) if normalize else features
 
     def forward(self, image, text):
-        image_features = self.encode_image(image, normalize=True)
-        text_features = self.encode_text(text, normalize=True)
+        image_features = self.encode_image(image, normalize=False)
+        text_features = self.encode_text(text, normalize=False)
         return image_features, text_features, self.logit_scale.exp()
 
 

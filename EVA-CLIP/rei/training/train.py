@@ -25,10 +25,10 @@ from .utils import save_file
 # import cv2
 # import matplotlib.pylab as plt
 # from eva_clip.tokenizer import SimpleTokenizer
-# import lmdb
-# import msgpack
-# import msgpack_numpy
-# msgpack_numpy.patch()
+import lmdb
+import msgpack
+import msgpack_numpy
+msgpack_numpy.patch()
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -359,9 +359,14 @@ def extract_features(model, data, args, device):
     cast_dtype = get_cast_dtype(args.precision)
     # tokenizer = SimpleTokenizer()
     # tokenize = get_tokenizer(args.model) # texts = tokenize()
-    # env = lmdb.open(f'{emb_folder}/clip_emb', map_size=1024**5)
-    # txn = env.begin(write=True)
-    # num_flag=0
+
+    # lmdb save
+    img_emb_folder = "/workspace/code/clip-tmp/_debug/clip_cls_emb"
+    env = lmdb.open(f'{img_emb_folder}', map_size=1024**4)
+    txn = env.begin(write=True)
+    num_flag=0
+    # lmdb save
+
     if 'val' in data:
         dataloader = data['val'].dataloader
         num_samples = 0
@@ -379,7 +384,7 @@ def extract_features(model, data, args, device):
                 texts = texts.to(device=device, non_blocking=True)
 
                 image_features, text_features, _ = model(images, texts)
-                v = model.visual.blocks[-1].attn.value_buffer
+                # v = model.visual.blocks[-1].attn.value_buffer
 
                 # vis start
                 # v = model.visual.blocks[-1].attn.proj(v[0][1:])
@@ -419,7 +424,7 @@ def extract_features(model, data, args, device):
 
                 
 
-                all_image_features.append(v.cpu())
+                all_image_features.append(image_features.cpu())
                 all_text_features.append(text_features.cpu())
 
                 batch_size = images.shape[0]
@@ -429,61 +434,60 @@ def extract_features(model, data, args, device):
                 )
 
                 if idx % save_interval == 0:
-                    # for idx_ft, img_ft in enumerate(all_image_features):
-                    #     for cur_idx in range(batch_size):
-                    #         cur_img_ft = img_ft[cur_idx]
-                    #         cur_text_ft = all_text_features[idx_ft][cur_idx]
-                    #         dump_emb=[]
-                    #         dump_emb.append(cur_img_ft.numpy().astype(np.float32))
-                    #         dump_emb.append(cur_text_ft.numpy().astype(np.float32))
-                    #         txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
-                    #         num_flag+=1
-                    # print(f"Save Sucess!")
-                    # txn.commit()
-                    # txn = env.begin(write=True)
-
-                    img_feat = np.concatenate(all_image_features)
-                    text_feat = np.concatenate(all_text_features)
+                    # lmdb save
+                    for idx_ft, img_ft in enumerate(all_image_features):
+                        for cur_idx in range(batch_size):
+                            cur_img_ft = img_ft[cur_idx]
+                            cur_text_ft = all_text_features[idx_ft][cur_idx]
+                            dump_emb=[]
+                            dump_emb.append(cur_img_ft.numpy().astype(np.float32))
+                            dump_emb.append(cur_text_ft.numpy().astype(np.float32))
+                            txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
+                            num_flag+=1
+                    print(f"Save Sucess!")
+                    txn.commit()
+                    txn = env.begin(write=True)
+                    # lmdb save
                     
-
-                    split = "%08d" % (idx//save_interval)
-                    out_img_feat_file = (f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy")
-                    out_text_feat_file = (f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy")
-
-                    save_file(img_feat, out_img_feat_file)
-                    save_file(text_feat, out_text_feat_file)
-
+                    # npy save
+                    # img_feat = np.concatenate(all_image_features)
+                    # text_feat = np.concatenate(all_text_features)
+                    # split = "%08d" % (idx//save_interval)
+                    # out_img_feat_file = (f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy")
+                    # out_text_feat_file = (f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy")
+                    # save_file(img_feat, out_img_feat_file)
+                    # save_file(text_feat, out_text_feat_file)
+                    # npy save
                     
                     all_image_features = []
                     all_text_features = []
 
             if len(all_image_features) > 0:
-                # for idx_ft, img_ft in enumerate(all_image_features):
-                #     for cur_idx in range(batch_size):
-                #         cur_img_ft = img_ft[cur_idx]
-                #         cur_text_ft = all_text_features[idx_ft][cur_idx]
-                #         dump_emb=[]
-                #         dump_emb.append(cur_img_ft.astype(np.float32))
-                #         dump_emb.append(cur_text_ft.astype(np.float32))
-                #         txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
-                #         num_flag+=1
-                # print(f"Save Sucess!")
-                # txn.commit()
-                # txn = env.begin(write=True)
-                # print(f"All Emb Save Sucess!")
-                # env.close()
-                # print(f"All Emb Save Sucess!")
-                img_feat = np.concatenate(all_image_features)
-                text_feat = np.concatenate(all_text_features)
+                # lmdb save
+                for idx_ft, img_ft in enumerate(all_image_features):
+                    for cur_idx in range(batch_size):
+                        cur_img_ft = img_ft[cur_idx]
+                        cur_text_ft = all_text_features[idx_ft][cur_idx]
+                        dump_emb=[]
+                        dump_emb.append(cur_img_ft.astype(np.float32))
+                        dump_emb.append(cur_text_ft.astype(np.float32))
+                        txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
+                        num_flag+=1
+                print(f"Save Sucess!")
+                txn.commit()
+                txn = env.begin(write=True)
+                print(f"All Emb Save Sucess!")
+                env.close()
+                print(f"All Emb Save Sucess!")
+                # lmdb save
 
-                split = "%08d" % ((idx//save_interval)+1)
-                out_img_feat_file = (
-                    f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy"
-                )
-                out_text_feat_file = (
-                    f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy"
-                )
-
-                save_file(img_feat, out_img_feat_file)
-                save_file(text_feat, out_text_feat_file)
+                # npy save
+                # img_feat = np.concatenate(all_image_features)
+                # text_feat = np.concatenate(all_text_features)
+                # split = "%08d" % ((idx//save_interval)+1)
+                # out_img_feat_file = (f"{img_emb_folder}/rank{args.rank}_img_emb_{split}.npy")
+                # out_text_feat_file = (f"{text_emb_folder}/rank{args.rank}_text_emb_{split}.npy")
+                # save_file(img_feat, out_img_feat_file)
+                # save_file(text_feat, out_text_feat_file)
+                # npy save
     torch.distributed.barrier()
