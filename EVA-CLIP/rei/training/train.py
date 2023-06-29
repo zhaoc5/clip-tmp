@@ -435,7 +435,7 @@ def extract_features(model, data, args, device):
                 if idx % save_interval == 0:
                     # lmdb save
                     for idx_ft, img_ft in enumerate(all_image_features):
-                        for cur_idx in range(batch_size):
+                        for cur_idx in range(len(img_ft)):
                             cur_img_ft = img_ft[cur_idx]
                             cur_text_ft = all_text_features[idx_ft][cur_idx]
                             dump_emb=[]
@@ -464,12 +464,12 @@ def extract_features(model, data, args, device):
             if len(all_image_features) > 0:
                 # lmdb save
                 for idx_ft, img_ft in enumerate(all_image_features):
-                    for cur_idx in range(batch_size):
+                    for cur_idx in range(len(img_ft)):
                         cur_img_ft = img_ft[cur_idx]
                         cur_text_ft = all_text_features[idx_ft][cur_idx]
                         dump_emb=[]
-                        dump_emb.append(cur_img_ft.astype(np.float32))
-                        dump_emb.append(cur_text_ft.astype(np.float32))
+                        dump_emb.append(cur_img_ft.numpy().astype(np.float32))
+                        dump_emb.append(cur_text_ft.numpy().astype(np.float32))
                         txn.put(key=str(num_flag).encode('ascii'), value=msgpack.dumps(dump_emb, use_bin_type=True))
                         num_flag+=1
                 print(f"Save Sucess!")
@@ -489,4 +489,8 @@ def extract_features(model, data, args, device):
                 # save_file(img_feat, out_img_feat_file)
                 # save_file(text_feat, out_text_feat_file)
                 # npy save
+            else:
+                print(f"All Emb Save Sucess!")
+                env.close()
+                print(f"All Emb Save Sucess!")
     torch.distributed.barrier()
