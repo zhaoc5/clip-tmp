@@ -78,18 +78,6 @@ class LMDBDataset(Dataset):
     def __len__(self):
         return len(self.keys)
 
-# Define contrastive loss
-class ContrastiveLoss(nn.Module):
-    def __init__(self, margin, batch_size, device):
-        super(ContrastiveLoss, self).__init__()
-        self.margin = margin
-        self.labels = torch.eye(batch_size).reshape(batch_size,1,batch_size,1).repeat(1,2,1,2).reshape(2*batch_size,2*batch_size).to(device)
-
-    def forward(self, output, target):
-        euclidean_distance = torch.pairwise_distance(output, target)
-        loss_contrastive = torch.mean((1 - self.labels) * torch.pow(euclidean_distance, 2) + \
-                                      self.labels * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0), 2))
-        return loss_contrastive
 
 # Define MSE loss for codebook supervision
 class MSELoss(nn.Module):
@@ -105,12 +93,11 @@ class MSELoss(nn.Module):
 
 # Set hyperparameters
 hidden_dim = 1024
-codebook_size = 8196
+codebook_size = 8192
 obj_num = 32
 learning_rate = 0.001
-batch_size = 64
-num_epochs = 10
-margin = 2.0
+batch_size = 256
+num_epochs = 100
 num_workers=16
 dataset_dir = "/workspace/code/clip-tmp/cc-train/clip_cls_emb_train"
 
@@ -123,13 +110,14 @@ dataset = LMDBDataset(dataset_dir)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, drop_last=True)
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-#contrastive_loss = ContrastiveLoss(margin,batch_size,device)
 mse_loss = MSELoss()
 
 # Training
 for epoch in range(num_epochs):
     pbar = tqdm(dataloader, total=len(dataloader))
-    sum_loss = 0.0
+    sum_loss_reconstruction = 0.0
+    sum_loss_codebook = 0.0
+    sum_loss_commitmentn = 0.0
     for i, batch in enumerate(pbar):
         optimizer.zero_grad()
         batch = batch.reshape(-1,1024).to(device)
@@ -138,21 +126,27 @@ for epoch in range(num_epochs):
         output, q, e = model(batch)
 
         # Loss
-        #loss_contrastive = contrastive_loss(output, batch)
         loss_reconstruction = mse_loss(batch, output)
         loss_codebook = mse_loss(q.detach(), e)
         loss_commitment = mse_loss(q, e.detach())
         total_loss = loss_reconstruction + loss_codebook + 0.25*loss_commitment
-        sum_loss+=total_loss
+
+        sum_loss_reconstruction+=loss_reconstruction
+        sum_loss_codebook+=loss_codebook
+        sum_loss_commitmentn+=loss_commitment
 
         # Backward and optimization
         total_loss.backward()
         optimizer.step()
 
-        if (i + 1) % 100 == 0:
-            sum_loss/=100.0
-            pbar.set_description(f"Epoch [{epoch+1}/{num_epochs}], Cur Avg Loss: {sum_loss:.4f}")
-            sum_loss = 0.0
+        if (i + 1) % 10 == 0:
+            sum_loss_reconstruction /= 10.0
+            sum_loss_codebook /= 10.0
+            sum_loss_commitmentn /= 10.0
+            pbar.set_description(f"[{epoch}/{num_epochs}] Loss: recon_{sum_loss_reconstruction:.4f} codebook_{sum_loss_codebook:.4f} commit_{sum_loss_commitmentn:.4f} ")
+            sum_loss_reconstruction = 0.0
+            sum_loss_codebook = 0.0
+            sum_loss_commitmentn = 0.0
         if (i + 1) % 100000 == 0:
             torch.save(model.state_dict(), f"/workspace/code/clip-tmp/EVA-CLIP/rei/logs_codebook/{epoch+1}_{i+1}.pth")
             print(f"Model weights saved at epoch {epoch+1}, iteration {i+1}.")
