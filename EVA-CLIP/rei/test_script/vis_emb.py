@@ -20,6 +20,7 @@ img_cls_embeddings = []
 text_cls_embeddings = []
 flag = 0
 lmdb_path = '/workspace/code/clip-tmp/_debug/clip_cls_emb_val'
+lmdb_path = '/workspace/code/clip-tmp/cc-train/clip_cls_emb_train'
 env = lmdb.open(lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
 txn = env.begin()
 cursor = txn.cursor()
@@ -28,8 +29,8 @@ for key, value in cursor:
     img_cls_embeddings.append(np.reshape(data[0],(1,-1)))
     text_cls_embeddings.append(np.reshape(data[1],(1,-1)))
     flag +=1
-    # if flag >=5000:
-    #     break
+    if flag >=5000:
+        break
 cursor.close()
 txn.abort() 
 env.close()
