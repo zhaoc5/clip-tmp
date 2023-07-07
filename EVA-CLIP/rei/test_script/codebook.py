@@ -1,152 +1,163 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from scipy.optimize import linear_sum_assignment
-import numpy as np
+import argparse
+
 import lmdb
-from tqdm import tqdm
 import msgpack
 import msgpack_numpy
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from scipy.optimize import linear_sum_assignment
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+
 msgpack_numpy.patch()
 
-# Define the VQ-VAE model
-class VQVAE(nn.Module):
-    def __init__(self, codebook_size, hidden_dim, obj_num):
-        super(VQVAE, self).__init__()
+
+class HungarianVQVAE(nn.Module):
+    def __init__(self, codebook_size, hidden_dim, code_dim, num_codes):
+        super(HungarianVQVAE, self).__init__()
         self.codebook_size = codebook_size
-        self.hidden_dim = hidden_dim
-        self.obj_num = obj_num
+        self.code_dim = code_dim
+        self.num_codes = num_codes
 
-        # Codebook
-        self.codebook = nn.Embedding(codebook_size, hidden_dim)
-
-        # Encoder
-        self.encoder = nn.Sequential(
-            nn.Linear(hidden_dim, self.obj_num*hidden_dim),
-        )
-
-        # Decoder
-        self.decoder = nn.Sequential(
-            nn.Linear(self.obj_num*hidden_dim, hidden_dim),
-        )
+        self.codebook = nn.Embedding(codebook_size, code_dim)
+        self.encoder = nn.Linear(hidden_dim, num_codes * code_dim)
+        self.decoder = nn.Linear(num_codes * code_dim, hidden_dim)
 
     def forward(self, x):
-        e = self.encoder(x).reshape(-1,self.obj_num,self.hidden_dim) # [batch_size,self.obj_num,1024]
-        q = self.quantize(e) # [batch_size,self.obj_num,1024]
-        q_in = e + (q-e).detach()
-        output = self.decoder(q_in.reshape(-1,self.obj_num*self.hidden_dim)) # [batch_size,1024]
+        bs = x.shape[0]
+        e = self.encoder(x)
+        e = e.reshape(bs, self.num_codes, self.code_dim)
+        q, indices = self.quantize(e)
+        q_ = e + (q - e).detach()
+        q_ = q_.reshape(bs, self.num_codes * self.code_dim)
+        r = self.decoder(q_)
+        return r, q, e, indices
 
-        return output, q, e
+    def quantize(self, e):
+        e = e.reshape(-1, self.code_dim)
 
-    def quantize(self, encoding):
-        encoding = encoding.reshape(-1,self.hidden_dim)
-        # Compute distances between encoding and codebook entries
-        #distances = torch.cdist(encoding, self.codebook.unsqueeze(0))
-        distances = (torch.sum(encoding**2, dim=1, keepdim=True)
-            + torch.sum(self.codebook.weight**2, dim=1)
-            - 2 * torch.matmul(encoding, self.codebook.weight.t())).sqrt()
-        distances = distances.reshape(-1, self.obj_num, self.codebook_size) # [batch_size, self.obj_num, 8196]
-        distances = distances.split(1) # batch_size * [self.obj_num, 8196]
-        #indices = torch.argmin(distances, dim=2)  # Find closest codebook indices
+        distances = (torch.sum(e ** 2, dim=1, keepdim=True)
+            + torch.sum(self.codebook.weight ** 2, dim=1)
+            - 2 * torch.matmul(e, self.codebook.weight.t())).sqrt()
+        distances = distances.reshape(-1, self.num_codes, self.codebook_size)
+        distances = distances.split(1)
+
         indices = [
-            linear_sum_assignment(d.squeeze().detach().cpu().numpy())[1]
+            linear_sum_assignment(d[0].detach().cpu().numpy())[1]
             for d in distances
         ]
         indices = torch.from_numpy(np.concatenate(indices))
-        indices = indices.to(encoding.device)
-        quantized = self.codebook(indices)
-        quantized = quantized.reshape(-1,self.obj_num,self.hidden_dim)
-        
-        return quantized
+        indices = indices.to(e.device)
 
-# LMDBDataset
+        q = self.codebook(indices)
+        q = q.reshape(-1, self.num_codes, self.code_dim)
+        return q, indices
+
+
 class LMDBDataset(Dataset):
     def __init__(self, lmdb_path):
         self.env = lmdb.open(lmdb_path, readonly=True, lock=False)
         self.txn = self.env.begin()
-        self.keys = [key.decode() for key, _ in tqdm(self.txn.cursor(), total=self.txn.stat()['entries'])]
+        self.keys = [key.decode() for key, _ in tqdm(self.txn.cursor())]
 
     def __getitem__(self, index):
         key = self.keys[index]
         value = self.txn.get(key.encode())
-        feats = np.array(msgpack.unpackb(value))
-        feats = torch.from_numpy(feats)
-
-        return feats
+        e = np.array(msgpack.unpackb(value))
+        return torch.from_numpy(e)
 
     def __len__(self):
         return len(self.keys)
 
 
-# Define MSE loss for codebook supervision
-class MSELoss(nn.Module):
-    def __init__(self):
-        super(MSELoss, self).__init__()
-        self.loss_fn = nn.MSELoss()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hidden-dim", type=int, default=1024)
+    parser.add_argument("--code-dim", type=int, default=1024)
+    parser.add_argument("--codebook-size", type=int, default=8192)
+    parser.add_argument("--num-codes", type=int, default=32)
+    parser.add_argument("--commitment", type=float, default=0.25)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--min-lr", type=float, default=1e-6)
+    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--data-dir", type=str, default="data")
+    parser.add_argument("--log-dir", type=str, default="logs")
+    parser.add_argument("--log-frequency", type=int, default=20)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args()
 
-    def forward(self, output, target):
-        loss_mse = self.loss_fn(output, target)
-        return loss_mse
+    model = HungarianVQVAE(codebook_size=args.codebook_size,
+                           hidden_dim=args.hidden_dim,
+                           code_dim=args.code_dim,
+                           num_codes=args.num_codes)
+    model = model.to("cuda")
 
+    dataset = LMDBDataset(args.data_dir)
 
+    dataloader = DataLoader(dataset,
+                            batch_size=args.batch_size,
+                            num_workers=args.num_workers,
+                            shuffle=True,
+                            pin_memory=True,
+                            drop_last=True)
 
-# Set hyperparameters
-hidden_dim = 1024
-codebook_size = 8192
-obj_num = 32
-learning_rate = 0.001
-batch_size = 256
-num_epochs = 100
-num_workers=16
-dataset_dir = "/workspace/code/clip-tmp/cc-train/clip_cls_emb_train"
+    optimizer = torch.optim.AdamW(model.parameters(),
+                                  lr=args.lr,
+                                  betas=(0.9, 0.999),
+                                  weight_decay=1e-2,
+                                  eps=1e-8)
 
+    max_step = len(dataset) * args.epochs
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                           T_max=max_step,
+                                                           eta_min=args.min_lr)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = VQVAE(codebook_size, hidden_dim, obj_num)
-model = model.to(device)
+    log_dir = "{}/imgmlp_bs{}_cs{}_cd{}_nc{}".format(args.log_dir,
+                                                  args.batch_size,
+                                                  args.codebook_size,
+                                                  args.code_dim,
+                                                  args.num_codes)
+    writer = SummaryWriter(log_dir=log_dir)
 
-dataset = LMDBDataset(dataset_dir)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, drop_last=True)
+    current_epoch = -1
+    if args.resume:
+        checkpoint = torch.load(f"{log_dir}/latest.pth",
+                                map_location=torch.device("cpu"))
+        model.load_state_dict(checkpoint.pop("model"))
+        optimizer.load_state_dict(checkpoint.pop("optimizer"))
+        scheduler.load_state_dict(checkpoint.pop("scheduler"))
+        current_epoch = checkpoint.pop("current_epoch")
+        del checkpoint
 
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-mse_loss = MSELoss()
+    for epoch in range(current_epoch + 1, args.epochs):
+        for i, x in tqdm(enumerate(dataloader), total=len(dataloader)):
+            x = x.reshape(-1, args.hidden_dim).to("cuda")
 
-# Training
-for epoch in range(num_epochs):
-    pbar = tqdm(dataloader, total=len(dataloader))
-    sum_loss_reconstruction = 0.0
-    sum_loss_codebook = 0.0
-    sum_loss_commitmentn = 0.0
-    for i, batch in enumerate(pbar):
-        optimizer.zero_grad()
-        batch = batch.reshape(-1,1024).to(device)
+            r, q, e, indices = model(x)
+            loss = F.mse_loss(x, r)
+            loss_code = F.mse_loss(q.detach(), e)
+            loss_commitment = F.mse_loss(q, e.detach())
+            total_loss = loss + loss_code + loss_commitment * args.commitment
 
-        # Forward 
-        output, q, e = model(batch)
+            optimizer.zero_grad()
+            total_loss.backward()
+            optimizer.step()
+            scheduler.step()
 
-        # Loss
-        loss_reconstruction = mse_loss(batch, output)
-        loss_codebook = mse_loss(q.detach(), e)
-        loss_commitment = mse_loss(q, e.detach())
-        total_loss = loss_reconstruction + loss_codebook + 0.25*loss_commitment
+            if i % args.log_frequency == 0:
+                j = epoch * len(dataloader) + i
+                writer.add_scalar("loss_r", loss.detach().cpu().numpy(), j)
+                writer.add_scalar("loss_c", loss_code.detach().cpu().numpy(), j)
+                writer.add_scalar("indices", len(indices.unique()), j)
 
-        sum_loss_reconstruction+=loss_reconstruction
-        sum_loss_codebook+=loss_codebook
-        sum_loss_commitmentn+=loss_commitment
-
-        # Backward and optimization
-        total_loss.backward()
-        optimizer.step()
-
-        if (i + 1) % 10 == 0:
-            sum_loss_reconstruction /= 10.0
-            sum_loss_codebook /= 10.0
-            sum_loss_commitmentn /= 10.0
-            pbar.set_description(f"[{epoch}/{num_epochs}] Loss: recon_{sum_loss_reconstruction:.4f} codebook_{sum_loss_codebook:.4f} commit_{sum_loss_commitmentn:.4f} ")
-            sum_loss_reconstruction = 0.0
-            sum_loss_codebook = 0.0
-            sum_loss_commitmentn = 0.0
-        if (i + 1) % 100000 == 0:
-            torch.save(model.state_dict(), f"/workspace/code/clip-tmp/EVA-CLIP/rei/logs_codebook/{epoch+1}_{i+1}.pth")
-            print(f"Model weights saved at epoch {epoch+1}, iteration {i+1}.")
+        checkpoint = {"model": model.state_dict(),
+                      "optimizer": optimizer.state_dict(),
+                      "scheduler": scheduler.state_dict(),
+                      "current_epoch": epoch}
+        torch.save(checkpoint, f"{log_dir}/latest.pth")
+        torch.save(model.state_dict(), f"{log_dir}/epoch_{epoch}")
